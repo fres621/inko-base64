@@ -1,0 +1,95 @@
+# Base64
+#
+# Simple Inko library to encode and decode base64 strings
+import std.byte_array(ToByteArray)
+
+let B64CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+
+class pub enum ErrorKind {
+  # The ByteArray to be decoded contains characters outside the base64 character set
+  case InvalidChar
+}
+
+# The main Base64 class
+# Although it's a class it only has static methods (I'm only using it as a namespace)
+class pub Base64 {
+  fn pub static encode_bytes(bytes: ByteArray) -> String {
+    # The encoded string will be written into this buffer
+    let buffer = ByteArray.new
+    let mut i = 0
+    while i < bytes.size {
+      # The first byte will always be there otherwise the iteration wouldn't occur. The other two we depend on are optional
+      let a = bytes.get(i := i + 1)
+      let b = bytes.opt(i := i + 1)
+      let c = bytes.opt(i := i + 1)
+
+      let out = ByteArray.new
+      out.push( a >> 2 )
+      out.push( ((a & 3) << 4) | (b.as_ref.or(0) >> 4) )
+      out.push( ((b.as_ref.or(0) & 15) << 2) | (c.as_ref.or(0) >> 6) )
+      out.push( c.as_ref.or(0) & 63 )
+
+      if b.none? {
+        out.set(2, 64)
+        out.set(3, 64)
+      } else if c.none? {
+        out.set(3, 64)
+      }
+
+      out.iter.each fn (pos) {
+        buffer.push(B64CHARS.byte(pos))
+      }
+    }
+    return buffer.into_string
+  }
+
+  fn pub static decode_bytes_unchecked(bytes: ByteArray) -> String {
+    let remaining = bytes.size & 3
+    # If the size isn't a multiple of 4 it needs to be prepended with = until it is
+    if remaining != 0 {
+      let b = bytes.clone
+      b.append("=".repeat(4 - remaining).into_byte_array)
+      return decode_bytes_unchecked(b)
+    }
+    # The encoded string will be written into this buffer
+    let buffer = ByteArray.new
+    let mut i = 0
+    let str = bytes.to_string
+    while i < bytes.size {
+      let a = B64CHARS.byte_index(str.substring(i := i + 1, 1), 0).get
+      let b = B64CHARS.byte_index(str.substring(i := i + 1, 1), 0).get
+      let c = B64CHARS.byte_index(str.substring(i := i + 1, 1), 0).get
+      let d = B64CHARS.byte_index(str.substring(i := i + 1, 1), 0).get
+
+      let out = ByteArray.new
+      out.push( (a << 2) | (b >> 4) )
+      out.push( ((b & 15) << 4) | (c >> 2) )
+      out.push( ((c & 3) << 6) | d )
+
+      buffer.push(out.get(0))
+      if c != 64 {
+        buffer.push(out.get(1))
+      }
+      if d != 64 {
+        buffer.push(out.get(2))
+      }
+    }
+    return buffer.into_string
+  }
+
+  fn pub static decode_bytes(bytes: ByteArray) -> Result[String, ErrorKind] {
+    if bytes.iter.any?(fn (byte) { B64CHARS.into_byte_array.contains?(byte).false? }) {
+      Result.Error(ErrorKind.InvalidChar)
+    } else {
+      Result.Ok(decode_bytes_unchecked(bytes))
+    }
+  }
+
+  fn pub static decode[T: ToByteArray](data: T) -> Result[String, ErrorKind] {
+    decode_bytes(data.to_byte_array)
+  }
+
+  fn pub static encode[T: ToByteArray](data: T) -> String {
+    encode_bytes(data.to_byte_array)
+  }
+}
